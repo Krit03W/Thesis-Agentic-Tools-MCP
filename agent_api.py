@@ -8,7 +8,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -24,13 +25,13 @@ MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 MAX_ROWS = int(os.getenv("AGENT_MAX_ROWS", "50"))
 
 
-def configure_gemini() -> None:
+def get_gemini_client() -> genai.Client:
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise RuntimeError(
             "Missing GEMINI_API_KEY. Set an API key before starting the server."
         )
-    genai.configure(api_key=api_key)
+    return genai.Client(api_key=api_key)
 
 
 def describe_schema() -> Dict[str, List[str]]:
@@ -87,8 +88,8 @@ class QueryResponse(BaseModel):
 
 class GeminiSQLAgent:
     def __init__(self) -> None:
-        configure_gemini()
-        self.model = genai.GenerativeModel(MODEL_NAME)
+        self.client = get_gemini_client()
+        self.model_name = MODEL_NAME
         self.schema = describe_schema()
 
     def _prompt(self, question: str) -> str:
@@ -114,8 +115,10 @@ User question: {question}
 
     def build_sql(self, question: str) -> Tuple[str, str | None]:
         prompt = self._prompt(question)
-        response = self.model.generate_content(
-            prompt, generation_config={"response_mime_type": "application/json"}
+        response = self.client.models.generate_content(
+            model=self.model_name,
+            contents=prompt,
+            config=types.GenerateContentConfig(response_mime_type="application/json"),
         )
         try:
             payload = json.loads(response.text)
